@@ -20,12 +20,22 @@ impl HasPosition for SurveyPoint {
 async fn main() {
     let mut triangulation: DelaunayTriangulation<SurveyPoint> = DelaunayTriangulation::new();
     
-    let points = vec![
-        SurveyPoint { x: -2.0, y: -2.0, z: 1.0 },
-        SurveyPoint { x: 2.0, y: -2.0, z: 0.89 },
-        SurveyPoint { x: 2.0, y: 2.0, z: 0.9 },
-        SurveyPoint { x: -2.0, y: 2.0, z: 1.2 }, 
-    ];
+    let mut points = Vec::new();
+    let grid_size = 10;
+    let spacing = 1.0;
+
+    for i in 0..grid_size {
+        for j in 0..grid_size {
+            let x = i as f64 * spacing - (grid_size as f64 / 2.0);
+            let y = j as f64 * spacing - (grid_size as f64 / 2.0);
+            
+            // This math creates a natural "swale" or rolling hill effect
+            // Z = cos(x/2) + sin(y/2) + a small random jitter for realism
+            let z = (x * 0.4).cos() + (y * 0.4).sin() + (i as f64 * 0.05);
+            
+            points.push(SurveyPoint { x, y, z });
+        }
+    }
 
     for pt in points {
         triangulation.insert(pt).expect("Failed to insert point");
