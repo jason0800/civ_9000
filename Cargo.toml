@@ -1,0 +1,8 @@
+[package]
+name = "civ_9000"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = { version = "0.13", features = ["dynamic_linking"] }
+spade = "2.6"
