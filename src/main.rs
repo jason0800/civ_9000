@@ -1,7 +1,7 @@
 use macroquad::prelude::*;
+use macroquad::ui::root_ui; // Import UI
 use spade::{DelaunayTriangulation, Point2, Triangulation, HasPosition};
 
-// 1. Define our survey point structure
 #[derive(Clone, Copy, Debug)]
 struct SurveyPoint {
     x: f64,
@@ -18,52 +18,48 @@ impl HasPosition for SurveyPoint {
 
 #[macroquad::main("CIV 9000")]
 async fn main() {
-    // 2. Initialize the TIN math engine
     let mut triangulation: DelaunayTriangulation<SurveyPoint> = DelaunayTriangulation::new();
     
-    // Sample site data (The "Mound")
     let points = vec![
-        SurveyPoint { x: -2.0, y: -2.0, z: 0.0 },
-        SurveyPoint { x: 2.0, y: -2.0, z: 0.0 },
-        SurveyPoint { x: 2.0, y: 2.0, z: 0.0 },
-        SurveyPoint { x: -2.0, y: 2.0, z: 0.0 },
-        SurveyPoint { x: 0.0, y: 0.0, z: 2.5 }, 
+        SurveyPoint { x: -2.0, y: -2.0, z: 1.0 },
+        SurveyPoint { x: 2.0, y: -2.0, z: 0.89 },
+        SurveyPoint { x: 2.0, y: 2.0, z: 0.9 },
+        SurveyPoint { x: -2.0, y: 2.0, z: 1.2 }, 
     ];
 
     for pt in points {
         triangulation.insert(pt).expect("Failed to insert point");
     }
 
-    // --- CAMERA STATE ---
+    // --- STATE ---
     let mut longitude: f32 = 0.8; 
     let mut latitude: f32 = 0.5;  
     let mut zoom: f32 = 10.0;
-    let mut target = vec3(0.0, 0.0, 0.0); // The point we are looking at
+    let mut target = vec3(0.0, 0.0, 0.0);
+    let mut show_points = true; // Toggle variable
 
     loop {
         let delta = mouse_delta_position();
 
-        // --- INPUT: Orbit (Left Click) ---
-        if is_mouse_button_down(MouseButton::Left) {
-            longitude += delta.x * 3.0; 
-            latitude -= delta.y * 3.0; 
-        }
+        // Only allow orbit/pan if we aren't clicking on a UI element
+        // (Prevents the camera from spinning when you click the button)
+        if !root_ui().is_mouse_over(mouse_position().into()) {
+            if is_mouse_button_down(MouseButton::Left) {
+                longitude += delta.x * 3.0; 
+                latitude -= delta.y * 3.0; 
+            }
 
-        // --- INPUT: Pan (Right Click or Middle Mouse) ---
-        if is_mouse_button_down(MouseButton::Right) || is_mouse_button_down(MouseButton::Middle) {
-            // Calculate relative vectors so panning follows the camera orientation
-            let look_dir = vec3(longitude.sin() * latitude.cos(), latitude.sin(), longitude.cos() * latitude.cos()).normalize();
-            let right = look_dir.cross(vec3(0.0, 1.0, 0.0)).normalize();
-            let up_vec = right.cross(look_dir).normalize();
-
-            // Pan speed scales with zoom so it feels consistent
-            target -= right * delta.x * zoom * 0.8;
-            target -= up_vec * delta.y * zoom * 0.8;
+            if is_mouse_button_down(MouseButton::Right) || is_mouse_button_down(MouseButton::Middle) {
+                let look_dir = vec3(longitude.sin() * latitude.cos(), latitude.sin(), longitude.cos() * latitude.cos()).normalize();
+                let right = look_dir.cross(vec3(0.0, 1.0, 0.0)).normalize();
+                let up_vec = right.cross(look_dir).normalize();
+                target -= right * delta.x * zoom * 0.8;
+                target -= up_vec * delta.y * zoom * 0.8;
+            }
         }
 
         latitude = latitude.clamp(-1.5, 1.5);
 
-        // --- INPUT: Zoom ---
         let wheel = mouse_wheel().1;
         if wheel != 0.0 {
             zoom -= wheel.signum() * (zoom * 0.1); 
@@ -72,7 +68,6 @@ async fn main() {
 
         clear_background(Color::new(0.1, 0.1, 0.12, 1.0));
 
-        // --- MATH: Calculate Camera Position ---
         let cam_x = target.x + zoom * longitude.sin() * latitude.cos();
         let cam_y = target.y + zoom * latitude.sin(); 
         let cam_z = target.z + zoom * longitude.cos() * latitude.cos();
@@ -84,29 +79,40 @@ async fn main() {
             ..Default::default() 
         });
 
-        // --- RENDER: Draw the TIN ---
+        // --- RENDER: Edges ---
         for face in triangulation.inner_faces() {
             let v = face.vertices();
-            
-            // Map our coordinates (Civil Z = Macroquad Y)
             let p1 = vec3(v[0].data().x as f32, v[0].data().z as f32, v[0].data().y as f32);
             let p2 = vec3(v[1].data().x as f32, v[1].data().z as f32, v[1].data().y as f32);
             let p3 = vec3(v[2].data().x as f32, v[2].data().z as f32, v[2].data().y as f32);
-
             draw_line_3d(p1, p2, WHITE);
             draw_line_3d(p2, p3, WHITE);
             draw_line_3d(p3, p1, WHITE);
-            draw_sphere(p1, 0.05, None, GREEN);
         }
 
-        // Return to 2D for UI
+        // --- RENDER: Points (Conditional) ---
+        if show_points {
+            for vertex in triangulation.vertices() {
+                let data = vertex.data();
+                let pos = vec3(data.x as f32, data.z as f32, data.y as f32);
+                draw_sphere(pos, 0.05, None, GREEN);
+            }
+        }
+
         set_default_camera();
         
+        // --- UI ---
         draw_rectangle(10.0, 10.0, 420.0, 30.0, Color::new(0.0, 0.0, 0.0, 0.5));
         draw_text(
-            &format!("CIV 9000 | Orbit: Left | Pan: Right | Zoom: {:.2}", zoom), 
+            &format!("CIV 9000 | Zoom: {:.2}", zoom), 
             20.0, 30.0, 20.0, WHITE
         );
+
+        // Add the Button
+        let btn_label = if show_points { "Hide Points" } else { "Show Points" };
+        if root_ui().button(vec2(10.0, 50.0), btn_label) {
+            show_points = !show_points;
+        }
         
         next_frame().await
     }
