@@ -28,7 +28,6 @@ async fn main() {
     let mut mode = ViewMode::Edit2D;
     let mut next_elevation = 0.0;
 
-    // Camera State
     let mut longitude: f32 = 0.8; 
     let mut latitude: f32 = 0.5;  
     let mut zoom: f32 = 10.0;
@@ -46,7 +45,6 @@ async fn main() {
                 set_default_camera();
                 let (m_x, m_y) = mouse_position();
 
-                // Point Insertion
                 if is_mouse_button_pressed(MouseButton::Left) && !root_ui().is_mouse_over(vec2(m_x, m_y)) {
                     let new_pt = SurveyPoint {
                         x: (m_x as f64 - screen_width() as f64 / 2.0) / 50.0,
@@ -61,7 +59,13 @@ async fn main() {
                     let [v1, v2] = edge.vertices();
                     let p1 = vec2(v1.data().x as f32 * 50.0 + screen_width()/2.0, v1.data().y as f32 * 50.0 + screen_height()/2.0);
                     let p2 = vec2(v2.data().x as f32 * 50.0 + screen_width()/2.0, v2.data().y as f32 * 50.0 + screen_height()/2.0);
-                    draw_line(p1.x, p1.y, p2.x, p2.y, 1.0, DARKGRAY);
+                    draw_line(p1.x, p1.y, p2.x, p2.y, 1.0, BLUE);
+                }
+
+                // 2D Dots
+                for vertex in triangulation.vertices() {
+                    let data = vertex.data();
+                    draw_circle(data.x as f32 * 50.0 + screen_width()/2.0, data.y as f32 * 50.0 + screen_height()/2.0, 3.0, LIME);
                 }
             }
 
@@ -83,20 +87,25 @@ async fn main() {
 
                 set_camera(&Camera3D { position: pos, up: vec3(0.0, 1.0, 0.0), target, ..Default::default() });
 
-                // 3D Wireframe Only
+                // 3D Wireframe
                 for edge in triangulation.undirected_edges() {
                     let [v1, v2] = edge.vertices();
                     let p1 = vec3(v1.data().x as f32, v1.data().z as f32, v1.data().y as f32);
                     let p2 = vec3(v2.data().x as f32, v2.data().z as f32, v2.data().y as f32);
-                    
-                    // Simple color ramp based on Z height
                     let color = if v1.data().z > 0.0 || v2.data().z > 0.0 { GREEN } else { BLUE };
                     draw_line_3d(p1, p2, color);
+                }
+
+                // 3D Dots (Spheres)
+                for vertex in triangulation.vertices() {
+                    let data = vertex.data();
+                    let p = vec3(data.x as f32, data.z as f32, data.y as f32);
+                    // Drawing a small sphere to represent the point in 3D space
+                    draw_sphere(p, 0.05, None, LIME);
                 }
             }
         }
 
-        // HUD
         set_default_camera();
         draw_text(&format!("MODE: {:?}", mode), 20.0, 30.0, 20.0, WHITE);
         draw_text(&format!("Z: {:.2}", next_elevation), 20.0, 50.0, 20.0, YELLOW);
