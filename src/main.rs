@@ -1,5 +1,5 @@
 use macroquad::prelude::*;
-use macroquad::ui::root_ui; // Import UI
+use macroquad::ui::root_ui;
 use spade::{DelaunayTriangulation, Point2, Triangulation, HasPosition};
 
 #[derive(Clone, Copy, Debug)]
@@ -16,114 +16,94 @@ impl HasPosition for SurveyPoint {
     }
 }
 
+#[derive(PartialEq, Debug, Clone, Copy)]
+enum ViewMode {
+    Edit2D,
+    View3D,
+}
+
 #[macroquad::main("CIV 9000")]
 async fn main() {
     let mut triangulation: DelaunayTriangulation<SurveyPoint> = DelaunayTriangulation::new();
-    
-    let mut points = Vec::new();
-    let grid_size = 10;
-    let spacing = 1.0;
+    let mut mode = ViewMode::Edit2D;
+    let mut next_elevation = 0.0;
 
-    for i in 0..grid_size {
-        for j in 0..grid_size {
-            let x = i as f64 * spacing - (grid_size as f64 / 2.0);
-            let y = j as f64 * spacing - (grid_size as f64 / 2.0);
-            
-            // This math creates a natural "swale" or rolling hill effect
-            // Z = cos(x/2) + sin(y/2) + a small random jitter for realism
-            let z = (x * 0.4).cos() + (y * 0.4).sin() + (i as f64 * 0.05);
-            
-            points.push(SurveyPoint { x, y, z });
-        }
-    }
-
-    for pt in points {
-        triangulation.insert(pt).expect("Failed to insert point");
-    }
-
-    // --- STATE ---
+    // Camera State
     let mut longitude: f32 = 0.8; 
     let mut latitude: f32 = 0.5;  
     let mut zoom: f32 = 10.0;
-    let mut target = vec3(0.0, 0.0, 0.0);
-    let mut show_points = true; // Toggle variable
+    let target = vec3(0.0, 0.0, 0.0);
 
     loop {
-        let delta = mouse_delta_position();
+        if is_key_pressed(KeyCode::Tab) {
+            mode = if mode == ViewMode::Edit2D { ViewMode::View3D } else { ViewMode::Edit2D };
+        }
 
-        // Only allow orbit/pan if we aren't clicking on a UI element
-        // (Prevents the camera from spinning when you click the button)
-        if !root_ui().is_mouse_over(mouse_position().into()) {
-            if is_mouse_button_down(MouseButton::Left) {
-                longitude += delta.x * 3.0; 
-                latitude -= delta.y * 3.0; 
+        clear_background(BLACK);
+
+        match mode {
+            ViewMode::Edit2D => {
+                set_default_camera();
+                let (m_x, m_y) = mouse_position();
+
+                // Point Insertion
+                if is_mouse_button_pressed(MouseButton::Left) && !root_ui().is_mouse_over(vec2(m_x, m_y)) {
+                    let new_pt = SurveyPoint {
+                        x: (m_x as f64 - screen_width() as f64 / 2.0) / 50.0,
+                        y: (m_y as f64 - screen_height() as f64 / 2.0) / 50.0,
+                        z: next_elevation as f64,
+                    };
+                    let _ = triangulation.insert(new_pt);
+                }
+
+                // 2D Wireframe
+                for edge in triangulation.undirected_edges() {
+                    let [v1, v2] = edge.vertices();
+                    let p1 = vec2(v1.data().x as f32 * 50.0 + screen_width()/2.0, v1.data().y as f32 * 50.0 + screen_height()/2.0);
+                    let p2 = vec2(v2.data().x as f32 * 50.0 + screen_width()/2.0, v2.data().y as f32 * 50.0 + screen_height()/2.0);
+                    draw_line(p1.x, p1.y, p2.x, p2.y, 1.0, DARKGRAY);
+                }
             }
 
-            if is_mouse_button_down(MouseButton::Right) || is_mouse_button_down(MouseButton::Middle) {
-                let look_dir = vec3(longitude.sin() * latitude.cos(), latitude.sin(), longitude.cos() * latitude.cos()).normalize();
-                let right = look_dir.cross(vec3(0.0, 1.0, 0.0)).normalize();
-                let up_vec = right.cross(look_dir).normalize();
-                target -= right * delta.x * zoom * 0.8;
-                target -= up_vec * delta.y * zoom * 0.8;
+            ViewMode::View3D => {
+                let delta = mouse_delta_position();
+                if is_mouse_button_down(MouseButton::Left) {
+                    longitude += delta.x * 3.0; 
+                    latitude -= delta.y * 3.0; 
+                }
+                let wheel = mouse_wheel().1;
+                if wheel != 0.0 { zoom -= wheel.signum() * (zoom * 0.1); }
+                latitude = latitude.clamp(-1.5, 1.5);
+
+                let pos = vec3(
+                    target.x + zoom * longitude.sin() * latitude.cos(),
+                    target.y + zoom * latitude.sin(), 
+                    target.z + zoom * longitude.cos() * latitude.cos()
+                );
+
+                set_camera(&Camera3D { position: pos, up: vec3(0.0, 1.0, 0.0), target, ..Default::default() });
+
+                // 3D Wireframe Only
+                for edge in triangulation.undirected_edges() {
+                    let [v1, v2] = edge.vertices();
+                    let p1 = vec3(v1.data().x as f32, v1.data().z as f32, v1.data().y as f32);
+                    let p2 = vec3(v2.data().x as f32, v2.data().z as f32, v2.data().y as f32);
+                    
+                    // Simple color ramp based on Z height
+                    let color = if v1.data().z > 0.0 || v2.data().z > 0.0 { GREEN } else { BLUE };
+                    draw_line_3d(p1, p2, color);
+                }
             }
         }
 
-        latitude = latitude.clamp(-1.5, 1.5);
-
-        let wheel = mouse_wheel().1;
-        if wheel != 0.0 {
-            zoom -= wheel.signum() * (zoom * 0.1); 
-        }
-        zoom = zoom.clamp(0.1, 100.0);
-
-        clear_background(Color::new(0.1, 0.1, 0.12, 1.0));
-
-        let cam_x = target.x + zoom * longitude.sin() * latitude.cos();
-        let cam_y = target.y + zoom * latitude.sin(); 
-        let cam_z = target.z + zoom * longitude.cos() * latitude.cos();
-
-        set_camera(&Camera3D {
-            position: vec3(cam_x, cam_y, cam_z),
-            up: vec3(0.0, 1.0, 0.0),
-            target: target,
-            ..Default::default() 
-        });
-
-        // --- RENDER: Edges ---
-        for face in triangulation.inner_faces() {
-            let v = face.vertices();
-            let p1 = vec3(v[0].data().x as f32, v[0].data().z as f32, v[0].data().y as f32);
-            let p2 = vec3(v[1].data().x as f32, v[1].data().z as f32, v[1].data().y as f32);
-            let p3 = vec3(v[2].data().x as f32, v[2].data().z as f32, v[2].data().y as f32);
-            draw_line_3d(p1, p2, WHITE);
-            draw_line_3d(p2, p3, WHITE);
-            draw_line_3d(p3, p1, WHITE);
-        }
-
-        // --- RENDER: Points (Conditional) ---
-        if show_points {
-            for vertex in triangulation.vertices() {
-                let data = vertex.data();
-                let pos = vec3(data.x as f32, data.z as f32, data.y as f32);
-                draw_sphere(pos, 0.05, None, GREEN);
-            }
-        }
-
+        // HUD
         set_default_camera();
-        
-        // --- UI ---
-        draw_rectangle(10.0, 10.0, 420.0, 30.0, Color::new(0.0, 0.0, 0.0, 0.5));
-        draw_text(
-            &format!("CIV 9000 | Zoom: {:.2}", zoom), 
-            20.0, 30.0, 20.0, WHITE
-        );
+        draw_text(&format!("MODE: {:?}", mode), 20.0, 30.0, 20.0, WHITE);
+        draw_text(&format!("Z: {:.2}", next_elevation), 20.0, 50.0, 20.0, YELLOW);
 
-        // Add the Button
-        let btn_label = if show_points { "Hide Points" } else { "Show Points" };
-        if root_ui().button(vec2(10.0, 50.0), btn_label) {
-            show_points = !show_points;
-        }
-        
+        if is_key_down(KeyCode::Equal) { next_elevation += 0.1; }
+        if is_key_down(KeyCode::Minus) { next_elevation -= 0.1; }
+
         next_frame().await
     }
 }
