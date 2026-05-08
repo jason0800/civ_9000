@@ -9,7 +9,6 @@ struct SurveyPoint {
     z: f64,
 }
 
-// Allow spade to understand our coordinates
 impl HasPosition for SurveyPoint {
     type Scalar = f64;
     fn position(&self) -> Point2<f64> {
@@ -39,39 +38,49 @@ async fn main() {
     let mut longitude: f32 = 0.8; 
     let mut latitude: f32 = 0.5;  
     let mut zoom: f32 = 10.0;
+    let mut target = vec3(0.0, 0.0, 0.0); // The point we are looking at
 
     loop {
-        // --- INPUT: Orbit ---
+        let delta = mouse_delta_position();
+
+        // --- INPUT: Orbit (Left Click) ---
         if is_mouse_button_down(MouseButton::Left) {
-            let delta = mouse_delta_position();
             longitude += delta.x * 3.0; 
-            latitude -= delta.y * 3.0; // Inverted: drag down to tilt up
+            latitude -= delta.y * 3.0; 
         }
 
-        // Clamp latitude to prevent the camera from flipping over the top/bottom
+        // --- INPUT: Pan (Right Click or Middle Mouse) ---
+        if is_mouse_button_down(MouseButton::Right) || is_mouse_button_down(MouseButton::Middle) {
+            // Calculate relative vectors so panning follows the camera orientation
+            let look_dir = vec3(longitude.sin() * latitude.cos(), latitude.sin(), longitude.cos() * latitude.cos()).normalize();
+            let right = look_dir.cross(vec3(0.0, 1.0, 0.0)).normalize();
+            let up_vec = right.cross(look_dir).normalize();
+
+            // Pan speed scales with zoom so it feels consistent
+            target -= right * delta.x * zoom * 0.8;
+            target -= up_vec * delta.y * zoom * 0.8;
+        }
+
         latitude = latitude.clamp(-1.5, 1.5);
 
-        // --- INPUT: Normalized Zoom ---
+        // --- INPUT: Zoom ---
         let wheel = mouse_wheel().1;
         if wheel != 0.0 {
-            // signum() makes every scroll click weigh the same (1.0 or -1.0)
-            let direction = wheel.signum(); 
-            // Percentage-based zoom (10% per click) prevents skipping the middle ground
-            zoom -= direction * (zoom * 0.1); 
+            zoom -= wheel.signum() * (zoom * 0.1); 
         }
-        zoom = zoom.clamp(0.5, 50.0);
+        zoom = zoom.clamp(0.1, 100.0);
 
         clear_background(Color::new(0.1, 0.1, 0.12, 1.0));
 
-        // --- MATH: Calculate Camera Position (Turntable Orbit) ---
-        let x = zoom * longitude.sin() * latitude.cos();
-        let y = zoom * latitude.sin(); 
-        let z = zoom * longitude.cos() * latitude.cos();
+        // --- MATH: Calculate Camera Position ---
+        let cam_x = target.x + zoom * longitude.sin() * latitude.cos();
+        let cam_y = target.y + zoom * latitude.sin(); 
+        let cam_z = target.z + zoom * longitude.cos() * latitude.cos();
 
         set_camera(&Camera3D {
-            position: vec3(x, y, z),
+            position: vec3(cam_x, cam_y, cam_z),
             up: vec3(0.0, 1.0, 0.0),
-            target: vec3(0.0, 0.0, 0.0),
+            target: target,
             ..Default::default() 
         });
 
@@ -84,20 +93,20 @@ async fn main() {
             let p2 = vec3(v[1].data().x as f32, v[1].data().z as f32, v[1].data().y as f32);
             let p3 = vec3(v[2].data().x as f32, v[2].data().z as f32, v[2].data().y as f32);
 
-            // Draw the Wireframe Edges
             draw_line_3d(p1, p2, WHITE);
             draw_line_3d(p2, p3, WHITE);
             draw_line_3d(p3, p1, WHITE);
-
-            // Draw the Vertices
             draw_sphere(p1, 0.05, None, GREEN);
         }
 
-        // Back to 2D for text/UI
+        // Return to 2D for UI
         set_default_camera();
         
-        draw_rectangle(10.0, 10.0, 350.0, 30.0, Color::new(0.0, 0.0, 0.0, 0.5));
-        draw_text(&format!("CIV 9000 | Zoom: {:.2}", zoom), 20.0, 30.0, 20.0, WHITE);
+        draw_rectangle(10.0, 10.0, 420.0, 30.0, Color::new(0.0, 0.0, 0.0, 0.5));
+        draw_text(
+            &format!("CIV 9000 | Orbit: Left | Pan: Right | Zoom: {:.2}", zoom), 
+            20.0, 30.0, 20.0, WHITE
+        );
         
         next_frame().await
     }
