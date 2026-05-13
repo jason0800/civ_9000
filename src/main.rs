@@ -58,12 +58,27 @@ async fn main() {
                 }
 
                 if is_mouse_button_pressed(MouseButton::Left) && !root_ui().is_mouse_over(vec2(m_x, m_y)) {
-                    let new_pt = SurveyPoint {
-                        x: (m_x as f64 - screen_width() as f64 / 2.0 - pan2d.x as f64) / 50.0,
-                        y: (m_y as f64 - screen_height() as f64 / 2.0 - pan2d.y as f64) / 50.0,
-                        z: next_elevation as f64,
-                    };
-                    let _ = triangulation.insert(new_pt);
+                    let world_x = (m_x as f64 - screen_width() as f64 / 2.0 - pan2d.x as f64) / 50.0;
+                    let world_y = (m_y as f64 - screen_height() as f64 / 2.0 - pan2d.y as f64) / 50.0;
+                    let click_pt = Point2::new(world_x, world_y);
+
+                    if is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift) {
+                        if let Some(handle) = triangulation.nearest_neighbor(click_pt) {
+                            let pos = handle.position();
+                            let dist_sq = (pos.x - click_pt.x).powi(2) + (pos.y - click_pt.y).powi(2);
+                            if dist_sq < 0.04 { // Approx 10 pixels radius
+                                let fixed_handle = handle.fix();
+                                triangulation.remove(fixed_handle);
+                            }
+                        }
+                    } else {
+                        let new_pt = SurveyPoint {
+                            x: world_x,
+                            y: world_y,
+                            z: next_elevation as f64,
+                        };
+                        let _ = triangulation.insert(new_pt);
+                    }
                 }
 
                 // 2D Wireframe
