@@ -27,13 +27,20 @@ async fn main() {
     let mut triangulation: DelaunayTriangulation<SurveyPoint> = DelaunayTriangulation::new();
     let mut mode = ViewMode::Edit2D;
     let mut next_elevation = 0.0;
+    let mut pan2d = vec2(0.0, 0.0);
+    let mut last_mouse_pos = vec2(0.0, 0.0);
 
     let mut longitude: f32 = 0.8; 
     let mut latitude: f32 = 0.5;  
     let mut zoom: f32 = 10.0;
-    let target = vec3(0.0, 0.0, 0.0);
+    let mut target = vec3(0.0, 0.0, 0.0);
 
     loop {
+        let (m_x, m_y) = mouse_position();
+        let current_mouse_pos = vec2(m_x, m_y);
+        let mouse_delta = current_mouse_pos - last_mouse_pos;
+        last_mouse_pos = current_mouse_pos;
+
         if is_key_pressed(KeyCode::Tab) {
             mode = if mode == ViewMode::Edit2D { ViewMode::View3D } else { ViewMode::Edit2D };
         }
@@ -43,12 +50,15 @@ async fn main() {
         match mode {
             ViewMode::Edit2D => {
                 set_default_camera();
-                let (m_x, m_y) = mouse_position();
+
+                if is_mouse_button_down(MouseButton::Right) || is_mouse_button_down(MouseButton::Middle) {
+                    pan2d += mouse_delta;
+                }
 
                 if is_mouse_button_pressed(MouseButton::Left) && !root_ui().is_mouse_over(vec2(m_x, m_y)) {
                     let new_pt = SurveyPoint {
-                        x: (m_x as f64 - screen_width() as f64 / 2.0) / 50.0,
-                        y: (m_y as f64 - screen_height() as f64 / 2.0) / 50.0,
+                        x: (m_x as f64 - screen_width() as f64 / 2.0 - pan2d.x as f64) / 50.0,
+                        y: (m_y as f64 - screen_height() as f64 / 2.0 - pan2d.y as f64) / 50.0,
                         z: next_elevation as f64,
                     };
                     let _ = triangulation.insert(new_pt);
@@ -57,15 +67,15 @@ async fn main() {
                 // 2D Wireframe
                 for edge in triangulation.undirected_edges() {
                     let [v1, v2] = edge.vertices();
-                    let p1 = vec2(v1.data().x as f32 * 50.0 + screen_width()/2.0, v1.data().y as f32 * 50.0 + screen_height()/2.0);
-                    let p2 = vec2(v2.data().x as f32 * 50.0 + screen_width()/2.0, v2.data().y as f32 * 50.0 + screen_height()/2.0);
+                    let p1 = vec2(v1.data().x as f32 * 50.0 + screen_width()/2.0 + pan2d.x, v1.data().y as f32 * 50.0 + screen_height()/2.0 + pan2d.y);
+                    let p2 = vec2(v2.data().x as f32 * 50.0 + screen_width()/2.0 + pan2d.x, v2.data().y as f32 * 50.0 + screen_height()/2.0 + pan2d.y);
                     draw_line(p1.x, p1.y, p2.x, p2.y, 1.0, BLUE);
                 }
 
                 // 2D Dots
                 for vertex in triangulation.vertices() {
                     let data = vertex.data();
-                    draw_circle(data.x as f32 * 50.0 + screen_width()/2.0, data.y as f32 * 50.0 + screen_height()/2.0, 3.0, LIME);
+                    draw_circle(data.x as f32 * 50.0 + screen_width()/2.0 + pan2d.x, data.y as f32 * 50.0 + screen_height()/2.0 + pan2d.y, 3.0, LIME);
                 }
             }
 
@@ -75,6 +85,22 @@ async fn main() {
                     longitude += delta.x * 3.0; 
                     latitude -= delta.y * 3.0; 
                 }
+
+                if is_mouse_button_down(MouseButton::Right) || is_mouse_button_down(MouseButton::Middle) {
+                    let view_dir = vec3(
+                        -longitude.sin() * latitude.cos(),
+                        -latitude.sin(),
+                        -longitude.cos() * latitude.cos()
+                    ).normalize();
+                    let up = vec3(0.0, 1.0, 0.0);
+                    let right = view_dir.cross(up).normalize();
+                    let true_up = right.cross(view_dir).normalize();
+
+                    let pan_speed = zoom * 0.002;
+                    target -= right * mouse_delta.x * pan_speed;
+                    target += true_up * mouse_delta.y * pan_speed;
+                }
+
                 let wheel = mouse_wheel().1;
                 if wheel != 0.0 { zoom -= wheel.signum() * (zoom * 0.1); }
                 latitude = latitude.clamp(-1.5, 1.5);
