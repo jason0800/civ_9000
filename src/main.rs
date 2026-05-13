@@ -1,5 +1,6 @@
 use macroquad::prelude::*;
 use macroquad::ui::root_ui;
+use macroquad::hash;
 use spade::{DelaunayTriangulation, Point2, Triangulation, HasPosition};
 
 #[derive(Clone, Copy, Debug)]
@@ -27,6 +28,7 @@ async fn main() {
     let mut triangulation: DelaunayTriangulation<SurveyPoint> = DelaunayTriangulation::new();
     let mut mode = ViewMode::Edit2D;
     let mut next_elevation = 0.0;
+    let mut elevation_input = String::from("0.0");
     let mut pan2d = vec2(0.0, 0.0);
     let mut last_mouse_pos = vec2(0.0, 0.0);
 
@@ -134,10 +136,14 @@ async fn main() {
 
         set_default_camera();
         draw_text(&format!("MODE: {:?}", mode), 20.0, 30.0, 20.0, WHITE);
-        draw_text(&format!("Z: {:.2}", next_elevation), 20.0, 50.0, 20.0, YELLOW);
 
-        if is_key_down(KeyCode::Equal) { next_elevation += 0.1; }
-        if is_key_down(KeyCode::Minus) { next_elevation -= 0.1; }
+        root_ui().window(hash!("elevation_window"), vec2(20.0, 40.0), vec2(200.0, 50.0), |ui| {
+            ui.input_text(hash!("elevation_input"), "Z Elevation", &mut elevation_input);
+        });
+
+        if let Ok(val) = elevation_input.parse::<f64>() {
+            next_elevation = val;
+        }
 
         next_frame().await
     }
